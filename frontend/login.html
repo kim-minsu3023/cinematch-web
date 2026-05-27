@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CineMatch - 로그인</title>
+    <style>
+        /* 🎨 1. 화면 디자인 (CSS) */
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Pretendard', sans-serif;
+            background-color: #141414; /* 넷플릭스 특유의 다크 그레이 */
+            color: white;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        .login-container {
+            background-color: rgba(0, 0, 0, 0.75);
+            padding: 60px 68px 40px;
+            border-radius: 4px;
+            width: 100%;
+            max-width: 314px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        }
+
+        h2 {
+            margin-top: 0;
+            margin-bottom: 28px;
+            font-size: 32px;
+            font-weight: 700;
+        }
+
+        .input-group {
+            margin-bottom: 16px;
+        }
+
+        .input-group input {
+            width: 100%;
+            padding: 16px 20px;
+            background-color: #333;
+            border: 0;
+            border-radius: 4px;
+            color: white;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+
+        .input-group input:focus {
+            outline: 2px solid #e50914; /* 강렬한 레드 포인트 */
+            background-color: #454545;
+        }
+
+        .login-btn {
+            width: 100%;
+            padding: 16px;
+            background-color: #e50914;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 24px;
+            transition: background-color 0.2s;
+        }
+
+        .login-btn:hover {
+            background-color: #c90812;
+        }
+
+        .signup-text {
+            margin-top: 16px;
+            color: #737373;
+            font-size: 16px;
+        }
+
+        .signup-text span {
+            color: white;
+            cursor: pointer;
+        }
+        
+        .signup-text span:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="login-container">
+        <h2>로그인</h2>
+        <form id="loginForm">
+            <div class="input-group">
+                <input type="email" id="email" placeholder="이메일 주소" required>
+            </div>
+            <div class="input-group">
+                <input type="password" id="password" placeholder="비밀번호" required>
+            </div>
+            <button type="submit" class="login-btn">로그인</button>
+        </form>
+        <div class="signup-text">
+            CineMatch가 처음이신가요? <span>지금 가입하세요.</span>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('loginForm').addEventListener('submit', async function(e) {
+            e.preventDefault(); // 버튼을 눌렀을 때 페이지가 새로고침 되는 것을 막아줍니다.
+
+            // 1. 유저가 입력한 이메일과 비밀번호 가져오기
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+
+            try {
+                // 2. 우리가 만든 백엔드 서버로 로그인 요청(POST) 보내기
+                const response = await fetch('http://127.0.0.1:8000/api/users/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        email: email,
+                        password: password
+                    })
+                });
+
+                // 3. 백엔드에서 온 응답(결과) 확인하기
+                const result = await response.json();
+
+                if (response.ok) {
+                    // 로그인 성공 시!
+                    alert(result.message); // "환영합니다, 체다고다님!" 창 띄우기
+                    window.location.href = 'index.html';
+                } else {
+                    // 로그인 실패 시 (비밀번호 틀림 등)
+                    alert("로그인 실패: " + result.detail);
+                }
+            } catch (error) {
+                alert("서버와 연결할 수 없습니다. 백엔드 서버가 켜져 있는지 확인해 주세요!");
+            }
+        });
+    </script>
+
+</body>
+</html>

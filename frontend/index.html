@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CineMatch - 홈</title>
+    <style>
+        /* 🎨 화면 디자인 (넷플릭스 스타일 다크 테마) */
+        body {
+            margin: 0;
+            background-color: #141414;
+            color: white;
+            font-family: 'Pretendard', sans-serif;
+        }
+
+        /* 상단 네비게이션 바 */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 50px;
+            background: linear-gradient(to bottom, rgba(0,0,0,0.7) 10%, rgba(0,0,0,0));
+        }
+
+        header h1 {
+            color: #e50914;
+            margin: 0;
+            font-size: 32px;
+            cursor: pointer;
+        }
+
+        .logout-btn {
+            background-color: transparent;
+            color: white;
+            border: 1px solid white;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: 0.3s;
+        }
+        
+        .logout-btn:hover {
+            background-color: white;
+            color: black;
+        }
+
+        /* 메인 콘텐츠 영역 */
+        .container {
+            padding: 0 50px 50px 50px;
+        }
+
+        /* 넷플릭스 스타일 가로 스크롤 영역 */
+        .category-section {
+            margin-bottom: 40px;
+        }
+        
+        .category-title {
+            font-size: 22px;
+            margin-bottom: 15px;
+            font-weight: bold;
+        }
+
+        .movie-row {
+            display: flex;
+            overflow-x: auto; /* 가로 스크롤 활성화 */
+            gap: 15px;
+            padding-bottom: 15px;
+        }
+
+        /* 스크롤바 디자인 예쁘게 만들기 */
+        .movie-row::-webkit-scrollbar {
+            height: 8px;
+        }
+        .movie-row::-webkit-scrollbar-thumb {
+            background: #555;
+            border-radius: 4px;
+        }
+
+        /* 개별 영화 카드 디자인 */
+        .movie-card {
+            background-color: #222;
+            border-radius: 8px;
+            overflow: hidden;
+            transition: transform 0.2s; 
+            cursor: pointer;
+            flex: 0 0 auto; /* 카드가 찌그러지지 않게 고정 */
+            width: 200px;
+        }
+
+        .movie-card:hover {
+            transform: scale(1.05); 
+            z-index: 2;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.8);
+        }
+
+        .movie-poster {
+            width: 100%;
+            height: 300px;
+            object-fit: cover;
+        }
+
+        .movie-info {
+            padding: 15px;
+        }
+
+        .movie-title {
+            margin: 0 0 10px 0;
+            font-weight: bold;
+            font-size: 16px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis; 
+        }
+
+        #recommendationSection {
+            margin-top: 30px; 
+            border-top: 1px solid #333; 
+            padding-top: 20px;
+        }
+        #recommendList {
+            display: flex; 
+            gap: 15px; 
+            flex-wrap: wrap;
+        }
+
+        .movie-rating {
+            margin: 0;
+            color: #ffd700; 
+            font-size: 14px;
+        }
+
+        /* 모달 애니메이션 및 구조 */
+        @keyframes zoomIn {
+            from { transform: scale(0.3); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+
+        .modal { 
+            display: none; 
+            position: fixed; 
+            top: 0; left: 0; 
+            width: 100%; height: 100%; 
+            background: rgba(0,0,0,0.9); 
+            z-index: 100; 
+            justify-content: center; 
+            align-items: center; 
+        }
+
+        .modal-content { 
+            background: #181818; 
+            width: 80vw;  
+            height: 80vh; 
+            border-radius: 12px; 
+            overflow-y: auto; 
+            position: relative;
+            animation: zoomIn 0.3s ease-out; 
+            box-shadow: 0 0 50px rgba(0,0,0,1);
+        }
+
+        .modal-banner { 
+            width: 100%; height: 50%; overflow: hidden; position: relative; 
+            background-color: #000; 
+        }
+        .modal-banner img { 
+            width: 100%; height: 100%; 
+            object-fit: contain;
+        }
+        .modal-body { padding: 40px; }
+        .modal-title { font-size: 40px; margin: 0 0 20px 0; font-weight: bold; }
+        .modal-overview { font-size: 18px; line-height: 1.8; color: #d2d2d2; max-width: 800px; }
+
+        .modal-btns { margin-top: 30px; display: flex; gap: 15px; }
+        
+        /* 찜 버튼 애니메이션 부드럽게 추가 */
+        #likeBtn { padding: 15px 35px; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 18px; transition: 0.3s background-color; }
+        .close-btn { padding: 15px 35px; background: #333; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 18px; }
+
+        /* 관람등급 뱃지 디자인 */
+        .age-badge {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            color: white;
+            font-weight: bold;
+            padding: 8px 12px;
+            border-radius: 5px;
+            font-size: 16px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.5);
+            z-index: 10;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>CineMatch</h1>
+        <div>
+            <button class="logout-btn" onclick="location.href='mypage.html'" style="margin-right: 10px;">마이페이지</button>
+            <button class="logout-btn" onclick="location.href='login.html'">로그아웃</button>
+        </div>
+    </header>
+
+    <div class="container">
+        <div class="category-section">
+            <div class="category-title">🇰🇷 지금 뜨는 국내 영화</div>
+            <div class="movie-row" id="koreanRow">
+                <p id="loadingText" style="color: gray;">서버에서 영화 데이터를 불러오는 중입니다...</p>
+            </div>
+        </div>
+
+        <div class="category-section">
+            <div class="category-title">🇺🇸 할리우드 인기작</div>
+            <div class="movie-row" id="foreignRow"></div>
+        </div>
+
+        <div class="category-section">
+            <div class="category-title">🦄 놓칠 수 없는 애니메이션</div>
+            <div class="movie-row" id="animationRow"></div>
+        </div>
+    </div>
+        
+    <div id="movieModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-banner">
+                <img id="modalPoster" src="" alt="포스터">
+                <div id="modalAgeRating" class="age-badge" style="display: none;"></div>
+            </div>
+            
+            <div class="modal-body">
+                <h2 id="modalTitle"></h2>
+                <p id="modalOverview"></p>
+                
+                <div id="modalDetails" style="margin-bottom: 20px; color: #aaa;">
+                    <p id="modalRating"></p>
+                    <p id="modalDirector"></p>
+                    <p id="modalCast"></p>
+                    <p id="modalRelease"></p>
+                    <p id="modalGenres"></p>
+                </div>
+
+                <div id="mediaSection" style="margin-top: 30px;">
+                    <h3>예고편</h3>
+                    <div id="trailerContainer" style="margin-bottom: 20px;"></div>
+                    
+                    <div id="reviewSection">
+                        <h3>사용자 리뷰</h3>
+                        <ul id="reviewList" style="list-style: none; padding: 0;"></ul>
+                    </div>
+                </div>
+
+                <div id="recommendationSection" style="margin-top: 30px; border-top: 1px solid #333; padding-top: 20px;">
+                    <h3>이런 영화는 어떠세요?</h3>
+                    <div id="recommendList" style="display: flex; gap: 15px; flex-wrap: wrap;"></div>
+                </div>
+                
+                <div class="modal-btns" style="margin-top: 30px;">
+                    <button id="likeBtn">찜하기 ♥</button>
+                    <button class="close-btn" onclick="document.getElementById('movieModal').style.display='none'">닫기</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const userEmail = "test1@naver.com"; // 테스트 유저 이메일
+        const movieMap = new Map(); 
+        let likedMovieIds = new Set(); // 찜한 영화 상태 관리
+
+        // ✨ 유저 찜 상태 동기화 함수
+        async function syncLikedStatus() {
+            try {
+                const res = await fetch(`http://127.0.0.1:8000/api/movies/liked-ids/${userEmail}`);
+                if (res.ok) {
+                    const ids = await res.json();
+                    likedMovieIds = new Set(ids);
+                }
+            } catch (e) { 
+                console.error('찜 목록 연동 실패:', e); 
+            }
+        }
+
+        async function fetchAndDisplayMovies() {
+            try {
+                await syncLikedStatus(); // ✨ 데이터 렌더링 전 찜 상태 먼저 가져오기
+                const response = await fetch('http://127.0.0.1:8000/api/movies/home-sections');
+                const data = await response.json();
+
+                function renderRow(containerId, movies) {
+                    const row = document.getElementById(containerId);
+                    row.innerHTML = ''; 
+
+                    movies.forEach(movie => {
+                        movieMap.set(movie.id, movie); 
+                        
+                        const card = document.createElement('div');
+                        card.className = 'movie-card';
+                        card.dataset.id = movie.id; 
+                        card.innerHTML = `
+                            <img src="${movie.poster_url}" class="movie-poster" alt="${movie.title}">
+                            <div class="movie-info">
+                                <p class="movie-title">${movie.title}</p>
+                                <p class="movie-rating">⭐ ${movie.rating.toFixed(1)}</p>
+                            </div>
+                        `;
+                        row.appendChild(card);
+                    });
+
+                    row.onclick = (e) => {
+                        const card = e.target.closest('.movie-card');
+                        if (card) {
+                            const movieId = parseInt(card.dataset.id);
+                            showMovieDetails(movieMap.get(movieId));
+                        }
+                    };
+                }
+
+                renderRow('koreanRow', data.korean);
+                renderRow('foreignRow', data.foreign);
+                renderRow('animationRow', data.animation);
+
+            } catch (error) {
+                console.error('데이터 로드 실패:', error);
+                document.getElementById('koreanRow').innerHTML = '<p style="color:red;">데이터를 불러오지 못했습니다. 백엔드 서버가 켜져 있는지 확인해 주세요!</p>';
+            }
+        }
+
+        async function showMovieDetails(movie) {
+            try {
+                const res = await fetch(`http://127.0.0.1:8000/api/movies/details/${movie.id}`);
+                const details = await res.json();
+
+                document.getElementById('modalPoster').src = movie.poster_url;
+                document.getElementById('modalTitle').innerText = details.title;
+                document.getElementById('modalOverview').innerText = `줄거리 : ${details.overview}`;
+                document.getElementById('modalDirector').innerText = `감독: ${details.director}`;
+                document.getElementById('modalCast').innerText = `출연: ${details.cast}`;
+                document.getElementById('modalRelease').innerText = `개봉일: ${details.release_date}`;
+                document.getElementById('modalGenres').innerText = `장르: ${details.genres.join(", ")}`;
+                
+                const ageBadge = document.getElementById('modalAgeRating');
+                if (details.age_rating && details.age_rating !== "등급 미정") {
+                    ageBadge.innerText = details.age_rating;
+                    ageBadge.style.display = 'block';
+                    ageBadge.style.backgroundColor = details.age_rating === '청소년관람불가' ? '#e50914' : 'rgba(51, 51, 51, 0.9)';
+                } else {
+                    ageBadge.style.display = 'none'; 
+                }
+
+                const recommendList = document.getElementById('recommendList');
+                recommendList.innerHTML = '';
+                details.recommendations.forEach(rec => {
+                    const item = document.createElement('div');
+                    item.style.textAlign = 'center';
+                    item.style.width = '100px';
+                    item.innerHTML = `<p style="font-size: 13px; color: #fff;">${rec.title}</p>`;
+                    recommendList.appendChild(item);
+                });
+
+                const trailerContainer = document.getElementById('trailerContainer');
+                trailerContainer.innerHTML = details.trailer_key 
+                    ? `<iframe width="100%" height="400" src="https://www.youtube.com/embed/${details.trailer_key}" frameborder="0" allowfullscreen></iframe>`
+                    : `<p>예고편이 없습니다.</p>`;
+
+                const reviewList = document.getElementById('reviewList');
+                if (details.reviews && details.reviews.length > 0) {
+                    reviewList.innerHTML = details.reviews.map(r => 
+                        `<li><strong>${r.author}</strong>: ${r.content}</li>`
+                    ).join('');
+                } else {
+                    reviewList.innerHTML = `<li>작성된 리뷰가 없습니다.</li>`;
+                }
+
+                const voteAverage = details.vote_average || 0; 
+                const starRating = Math.round(voteAverage / 2); 
+                const stars = '⭐'.repeat(starRating) + '☆'.repeat(5 - starRating);
+                document.getElementById('modalRating').innerText = `평점: ${stars} (${voteAverage.toFixed(1)}점)`;
+
+                // ✨ 찜 버튼 상태 UI 렌더링
+                updateLikeButtonUI(movie.id);
+
+                document.getElementById('movieModal').style.display = 'flex';
+
+            } catch (error) {
+                console.error("오류 발생:", error);
+                alert("정보를 불러오는 중 오류가 발생했습니다.");
+            }
+        }
+
+        // ✨ 찜 버튼 디자인 및 텍스트 전환 함수
+        function updateLikeButtonUI(movieId) {
+            const likeBtn = document.getElementById('likeBtn');
+            if (likedMovieIds.has(movieId)) {
+                likeBtn.innerText = "찜 취소 💔";
+                likeBtn.style.backgroundColor = "#555"; // 취소 상태는 회색톤
+            } else {
+                likeBtn.innerText = "찜하기 ♥";
+                likeBtn.style.backgroundColor = "#e50914"; // 찜 상태는 넷플릭스 레드
+            }
+            likeBtn.onclick = () => toggleLikeMovie(movieId);
+        }
+
+        // ✨ 찜 / 찜 취소 토글 로직
+        async function toggleLikeMovie(movieId) {
+            const isLiked = likedMovieIds.has(movieId);
+            const action = isLiked ? 'unlike' : 'like'; // 현재 상태에 따라 호출할 API 분기
+
+            try {
+                const response = await fetch(`http://127.0.0.1:8000/api/movies/${action}/${movieId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email: userEmail }) 
+                });
+
+                if (response.ok) {
+                    // API 통신 성공 시 클라이언트 측 Set 업데이트
+                    if (isLiked) {
+                        likedMovieIds.delete(movieId);
+                    } else {
+                        likedMovieIds.add(movieId);
+                    }
+                    updateLikeButtonUI(movieId); // UI 즉시 반영
+                } else {
+                    alert("요청 처리 중 문제가 발생했습니다.");
+                }
+            } catch (error) {
+                console.error(error);
+                alert("서버와 통신할 수 없습니다.");
+            }
+        }
+
+        // 함수 실행!
+        fetchAndDisplayMovies();
+
+        // ESC 키로 모달 닫기 감지
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                document.getElementById('movieModal').style.display = 'none';
+            }
+        });
+    </script>
+</body>
+</html>
