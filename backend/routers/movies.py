@@ -1,5 +1,6 @@
 import sys
 import os
+from datetime import datetime  
 
 # 모듈 탐색 경로 설정 (제일 위에 있어야 함)
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -11,6 +12,10 @@ from database import users_collection, movies_collection
 from bson import ObjectId
 from pydantic import BaseModel  
 from ai_service.model.recommend import get_recommendations
+
+# ✨ AI 자연어 검색을 위해 새로 추가된 라이브러리
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
 router = APIRouter()
 
@@ -90,8 +95,13 @@ def get_liked_movies(email: str):
 
     return movies_data
 
+# -------------------------------------------------------------
+# ✨ [추가 옵션 1 적용] 영화 상세 정보 API 
+# (OTT 정보 및 프론트엔드 표출용 포스터 포함 추천 배열 추가)
+# -------------------------------------------------------------
 @router.get("/details/{movie_id}")
 def get_movie_details(movie_id: int):
+    # 1. 기본 영화 상세 정보 호출
     url = f"https://api.themoviedb.org/3/movie/{movie_id}?api_key={TMDB_API_KEY}&language=ko-KR&append_to_response=credits,videos,reviews,release_dates"
     data = requests.get(url).json()
     
@@ -116,25 +126,66 @@ def get_movie_details(movie_id: int):
                     age_rating = "15세관람가"
                 elif cert == "12":
                     age_rating = "12세관람가"
-                elif cert == "All" or cert == "ALL":
+                elif cert in ["All", "ALL"]:
                     age_rating = "전체관람가"
                 else:
                     age_rating = cert
             break
 
+    # ✨ 상영 중 여부 판단 (개봉일 기준 45일 이내)
+    is_playing_in_theater = False
+    release_date_str = data.get("release_date", "")
+    if release_date_str:
+        try:
+            # 문자열 날짜를 datetime 객체로 변환
+            release_date_obj = datetime.strptime(release_date_str, "%Y-%m-%d")
+            # 오늘 날짜와의 차이 계산
+            days_diff = (datetime.now() - release_date_obj).days
+            # 미래에 개봉하거나(음수) 개봉한 지 45일 이내라면 상영 중으로 판단
+            if days_diff <= 45:
+                is_playing_in_theater = True
+        except ValueError:
+            pass
+
+    # 2. [추가] 시청 가능한 OTT 정보 호출 (한국 기준)
+    ott_url = f"https://api.themoviedb.org/3/movie/{movie_id}/watch/providers?api_key={TMDB_API_KEY}"
+    ott_data = requests.get(ott_url).json()
+    kr_providers = []
+    
+    if "results" in ott_data and "KR" in ott_data["results"]:
+        if "flatrate" in ott_data["results"]["KR"]: # 정액제 서비스만 추출
+            for provider in ott_data["results"]["KR"]["flatrate"]:
+                kr_providers.append({
+                    "provider_name": provider.get("provider_name"),
+                    "logo_path": provider.get("logo_path")
+                })
+
+    # 3. [수정] AI 연쇄 추천을 위한 Pool 생성 (프론트용 포스터 URL 추가!)
     popular_url = f"https://api.themoviedb.org/3/movie/popular?api_key={TMDB_API_KEY}&language=ko-KR&page=1"
     popular_data = requests.get(popular_url).json()
-    movie_list = [{"id": m['id'], "title": m['title'], "overview": m['overview']} for m in popular_data['results']]
+    movie_list = [{
+        "id": m['id'], 
+        "title": m['title'], 
+        "overview": m['overview'],
+        "poster_url": f"https://image.tmdb.org/t/p/w500{m['poster_path']}" if m.get("poster_path") else ""
+    } for m in popular_data['results']]
     
     if not any(m['id'] == movie_id for m in movie_list):
         target_movie = {
             "id": movie_id,
             "title": data.get("title", ""),
-            "overview": data.get("overview", "")
+            "overview": data.get("overview", ""),
+            "poster_url": f"https://image.tmdb.org/t/p/w500{data.get('poster_path')}" if data.get("poster_path") else ""
         }
         movie_list.append(target_movie)
 
-    recommendations = get_recommendations(movie_list, movie_id)
+    # 4. [수정] 자체 추천 엔진 실행 후, 화면 하단 표시용 6개 추출 및 포스터 매핑
+    raw_recommendations = get_recommendations(movie_list, movie_id)
+    final_recommendations = []
+    for rec in raw_recommendations[:6]: # 최대 6개까지만
+        rec_detail = next((m for m in movie_list if m['id'] == rec['id']), None)
+        if rec_detail:
+            final_recommendations.append(rec_detail)
 
     return {
         "title": data.get("title"),
@@ -146,8 +197,10 @@ def get_movie_details(movie_id: int):
         "vote_average": data.get("vote_average", 0),
         "trailer_key": trailer_key,      
         "reviews": reviews,              
-        "recommendations": recommendations,
-        "age_rating": age_rating  
+        "recommendations": final_recommendations, 
+        "age_rating": age_rating,
+        "ott_providers": kr_providers,             
+        "is_playing_in_theater": is_playing_in_theater 
     }
 
 @router.get("/home-sections")
@@ -186,7 +239,7 @@ def get_home_sections():
         raise HTTPException(status_code=400, detail=f"TMDB 연결 실패: {str(e)}")
     
 # -------------------------------------------------------------
-# ✨ [수정됨] 유저 맞춤 AI 추천 API (장르 텍스트 추출 기능 추가)
+# 유저 맞춤 AI 추천 API
 # -------------------------------------------------------------
 @router.get("/recommendations/personal/{email}")
 def get_personal_recommendations(email: str):
@@ -194,30 +247,23 @@ def get_personal_recommendations(email: str):
     if not TMDB_API_KEY:
         raise HTTPException(status_code=500, detail="API 키가 설정되지 않았습니다.")
 
-    # 1. 유저 정보 및 찜 목록 확인
     user = users_collection.find_one({"email": email})
     if not user or not user.get("liked_movies"):
-        return {"movies": [], "genre": ""} # ✨ 빈 형태 반환 변경
+        return {"movies": [], "genre": ""} 
 
     liked_movie_ids = user["liked_movies"]
-    
-    # 2. 가장 최근에 찜한 영화를 타겟으로 설정!
     target_movie_id = liked_movie_ids[-1] 
 
-    # 3. 추천 후보군(Pool) 만들기: MongoDB에서 전체 영화 데이터 한 번에 가져오기
     all_movies_cursor = movies_collection.find({}, {"_id": 0}) 
     movie_list = list(all_movies_cursor)
 
-    # 4. 타겟 영화가 DB 안에 있는지 확인
     target_movie = next((m for m in movie_list if m['id'] == target_movie_id), None)
     
-    # ✨ 타겟 영화의 메인 장르 추출 로직 추가
-    target_genre = "명작" # 기본값
+    target_genre = "명작" 
     if target_movie and target_movie.get('genre_ids'):
         main_genre_id = target_movie['genre_ids'][0]
         target_genre = GENRE_MAP.get(main_genre_id, "명작")
 
-    # 에러 방지: 혹시 타겟 영화가 DB에 없는 마이너한 영화라면, TMDB에서 급히 가져와 끼워넣기
     if not target_movie:
         target_url = f"https://api.themoviedb.org/3/movie/{target_movie_id}?api_key={TMDB_API_KEY}&language=ko-KR"
         try:
@@ -229,12 +275,10 @@ def get_personal_recommendations(email: str):
             }
             movie_list.append(target_movie)
         except Exception:
-            return {"movies": [], "genre": ""} # ✨ 에러 시 반환 형식 맞춤
+            return {"movies": [], "genre": ""} 
 
-    # 5. 우리가 만든 AI 추천 로직 실행!
     raw_recommendations = get_recommendations(movie_list, target_movie_id)
 
-    # 6. 추천된 영화 중 중복을 제외하고 데이터 반환
     final_recommendations = []
     for rec in raw_recommendations:
         if rec['id'] not in liked_movie_ids: 
@@ -252,8 +296,76 @@ def get_personal_recommendations(email: str):
             if len(final_recommendations) >= 10:
                 break
 
-    # ✨ 딕셔너리로 장르와 영화 목록 함께 반환
     return {
         "movies": final_recommendations,
         "genre": target_genre
     }
+
+# -------------------------------------------------------------
+# 🔍 1. 일반 영화 제목 검색 API
+# -------------------------------------------------------------
+@router.get("/search/title")
+def search_by_title(query: str):
+    if not TMDB_API_KEY:
+        raise HTTPException(status_code=500, detail="API 키가 설정되지 않았습니다.")
+        
+    search_url = f"https://api.themoviedb.org/3/search/movie?api_key={TMDB_API_KEY}&language=ko-KR&query={query}&page=1"
+    response = requests.get(search_url).json()
+    
+    results = []
+    for item in response.get("results", [])[:10]: # 10개만 추출
+        if item.get("poster_path"): # 포스터가 있는 영화만
+            results.append({
+                "id": item['id'],
+                "title": item['title'],
+                "rating": item['vote_average'],
+                "poster_url": f"https://image.tmdb.org/t/p/w500{item['poster_path']}",
+                "overview": item['overview']
+            })
+    return results
+
+# -------------------------------------------------------------
+# 🤖 2. 슬래시(/) AI 자연어 추천 검색 API (TF-IDF 벡터 유사도)
+# -------------------------------------------------------------
+@router.get("/search/ai")
+def search_by_ai(query: str):
+    # 1. DB에 있는 전체 영화 데이터 가져오기
+    movies = list(movies_collection.find({}, {"_id": 0}))
+    if not movies:
+        return []
+
+    # 2. 모든 영화의 줄거리(overview) 리스트 생성
+    overviews = [m.get("overview", "") for m in movies]
+    
+    # 3. 사용자가 입력한 검색어(예: "잔잔한 힐링 영화")를 리스트 맨 끝에 추가
+    overviews.append(query)
+
+    # 4. TF-IDF 벡터화 (텍스트를 컴퓨터가 이해하는 숫자로 변환)
+    vectorizer = TfidfVectorizer()
+    try:
+        tfidf_matrix = vectorizer.fit_transform(overviews)
+    except ValueError:
+        return [] # 데이터가 너무 없거나 영어/숫자만 있어서 에러나는 경우 방지
+
+    # 5. 사용자의 검색어(맨 마지막 값)와 기존 영화들의 유사도 계산
+    cosine_sim = cosine_similarity(tfidf_matrix[-1], tfidf_matrix[:-1]).flatten()
+
+    # 6. 유사도가 가장 높은 상위 10개 영화 추출
+    top_indices = cosine_sim.argsort()[-10:][::-1]
+    
+    results = []
+    for i in top_indices:
+        if cosine_sim[i] > 0.01: # 유사도가 조금이라도 있는 것만
+            # 프론트엔드 출력을 위해 TMDB 포스터 URL 조립
+            poster = movies[i].get("poster_path", "")
+            poster_url = f"https://image.tmdb.org/t/p/w500{poster}" if poster else ""
+            
+            results.append({
+                "id": movies[i]['id'],
+                "title": movies[i]['title'],
+                "rating": movies[i].get('vote_average', 0),
+                "poster_url": poster_url,
+                "overview": movies[i].get('overview', '')
+            })
+            
+    return results
