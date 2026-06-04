@@ -66,7 +66,8 @@ def collect_movies_to_db(max_pages=500, sort_by="popularity.desc", extra_params=
                     "vote_average": m.get('vote_average', 0),
                     "poster_url": f"https://image.tmdb.org/t/p/w500{m.get('poster_path')}" if m.get('poster_path') else "",
                     "genre_ids": m.get('genre_ids', []),
-                    "popularity": m.get('popularity', 0)
+                    "popularity": m.get('popularity', 0),
+                    "original_language": m.get('original_language', '')  # ✨ 원어(ko/en/ja...) — 언어 기반 추천용
                 }
 
                 # upsert=True : 같은 id가 있으면 갱신, 없으면 새로 추가 (중복 자동 제거)

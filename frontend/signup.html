@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CineMatch - 회원가입</title>
+    <style>
+        body { margin: 0; font-family: 'Pretendard', sans-serif; background-color: #141414; color: white; display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 20px; }
+        .signup-container { background-color: rgba(0, 0, 0, 0.75); padding: 40px 50px; border-radius: 8px; width: 100%; max-width: 450px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
+        h2 { margin-top: 0; margin-bottom: 20px; font-size: 32px; font-weight: 700; }
+        .input-group { margin-bottom: 16px; }
+        .input-group input { width: 100%; padding: 14px 20px; background-color: #333; border: 0; border-radius: 4px; color: white; font-size: 16px; box-sizing: border-box; }
+        .input-group input:focus { outline: 2px solid #e50914; background-color: #454545; }
+        
+        /* 취향 선택 버튼(Pill) 디자인 */
+        .section-title { font-size: 16px; font-weight: bold; margin: 25px 0 10px 0; color: #aaa; }
+        .pill-group { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 15px; }
+        .pill { padding: 8px 16px; background-color: #333; border-radius: 20px; cursor: pointer; font-size: 14px; transition: 0.2s; border: 2px solid transparent; user-select: none; }
+        .pill:hover { background-color: #555; }
+        .pill.active { background-color: #e50914; font-weight: bold; }
+
+        .submit-btn { width: 100%; padding: 16px; background-color: #e50914; color: white; border: none; border-radius: 4px; font-size: 16px; font-weight: bold; cursor: pointer; margin-top: 20px; transition: 0.2s; }
+        .submit-btn:hover { background-color: #c90812; }
+        .login-text { margin-top: 20px; color: #737373; font-size: 15px; text-align: center; }
+        .login-text span { color: white; cursor: pointer; font-weight: bold; }
+        .login-text span:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+
+    <div class="signup-container">
+        <h2>회원가입</h2>
+        <form id="signupForm">
+            <div class="input-group"><input type="email" id="email" placeholder="이메일 주소" required></div>
+            <div class="input-group"><input type="password" id="password" placeholder="비밀번호" required></div>
+            <div class="input-group"><input type="text" id="nickname" placeholder="사용할 닉네임" required></div>
+
+            <div class="section-title">🎬 좋아하는 장르를 선택해주세요 (다중 선택)</div>
+            <div class="pill-group" id="genreGroup">
+                <div class="pill" data-value="28">액션</div>
+                <div class="pill" data-value="10749">로맨스</div>
+                <div class="pill" data-value="35">코미디</div>
+                <div class="pill" data-value="27">공포/스릴러</div>
+                <div class="pill" data-value="878">SF</div>
+                <div class="pill" data-value="16">애니메이션</div>
+                <div class="pill" data-value="18">드라마</div>
+                <div class="pill" data-value="14">판타지</div>
+            </div>
+
+            <div class="section-title">🌍 선호하는 영화 국가 (다중 선택)</div>
+            <div class="pill-group" id="countryGroup">
+                <div class="pill" data-value="KR">🇰🇷 한국</div>
+                <div class="pill" data-value="US">🇺🇸 미국(할리우드)</div>
+                <div class="pill" data-value="JP">🇯🇵 일본</div>
+                <div class="pill" data-value="GB">🇬🇧 영국</div>
+            </div>
+
+            <button type="submit" class="submit-btn">CineMatch 시작하기</button>
+        </form>
+        <div class="login-text">이미 계정이 있으신가요? <span onclick="location.href='login.html'">로그인하기</span></div>
+    </div>
+
+    <script>
+        // 버튼 클릭(토글) 이벤트
+        document.querySelectorAll('.pill').forEach(pill => {
+            pill.addEventListener('click', function() {
+                this.classList.toggle('active');
+            });
+        });
+
+        document.getElementById('signupForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+
+            // 선택된 데이터 수집
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const nickname = document.getElementById('nickname').value;
+            
+            // active 클래스가 붙은 알약(Pill)들의 값을 배열로 수집
+            const preferredGenres = Array.from(document.querySelectorAll('#genreGroup .pill.active')).map(el => parseInt(el.dataset.value));
+            const preferredCountries = Array.from(document.querySelectorAll('#countryGroup .pill.active')).map(el => el.dataset.value);
+
+            try {
+                const response = await fetch('https://cinematch-web-3cut.onrender.com//api/users/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        email: email,
+                        password: password,
+                        nickname: nickname,
+                        preferred_genres: preferredGenres,
+                        preferred_countries: preferredCountries
+                    })
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    alert("가입을 환영합니다! 🎉");
+                    // ✨ 가입 성공 시 브라우저에 이메일 저장 후 메인으로 이동
+                    localStorage.setItem('userEmail', email);
+                    window.location.href = 'index.html';
+                } else {
+                    alert("가입 실패: " + result.detail);
+                }
+            } catch (error) {
+                alert("서버 오류: 백엔드가 켜져 있는지 확인하세요.");
+            }
+        });
+    </script>
+</body>
+</html>

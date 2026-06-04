@@ -44,6 +44,27 @@
         #likeBtn { padding: 15px 35px; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 18px; transition: 0.3s; }
         .close-btn { padding: 15px 35px; background: #333; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 18px; }
         .age-badge { position: absolute; top: 20px; right: 20px; color: white; font-weight: bold; padding: 8px 12px; border-radius: 5px; font-size: 16px; box-shadow: 0 4px 6px rgba(0,0,0,0.5); z-index: 10; }
+
+        /* ✨ [추가] 취향 일치도(육각형) 섹션 */
+        #tasteMatchSection { margin-top: 30px; border-top: 1px solid #333; padding-top: 20px; }
+        #matchOverall { color: #e50914; font-weight: bold; margin-left: 8px; font-size: 18px; }
+        #matchNotice { color: #888; font-size: 14px; margin: 5px 0 0; }
+        .radar-wrap { position: relative; width: 100%; max-width: 420px; height: 360px; margin: 15px auto 0; }
+
+        /* ✨ [추가] 보러가기(극장/OTT) 섹션 + 추천 영화 호버 (메인 화면과 동일) */
+        #watchSectionContainer { margin-top: 25px; margin-bottom: 25px; }
+        .watch-title { font-size: 18px; font-weight: bold; margin-bottom: 15px; }
+        .watch-btn { display: flex; align-items: center; justify-content: space-between; background-color: #222836; padding: 15px 20px; border-radius: 8px; margin-bottom: 10px; cursor: pointer; transition: 0.2s; border: 1px solid #2a3142; }
+        .watch-btn:hover { background-color: #31384a; }
+        .watch-left { display: flex; align-items: center; font-weight: bold; font-size: 15px; }
+        .watch-left img { width: 28px; height: 28px; border-radius: 50%; margin-right: 12px; }
+        .watch-right { color: #8a93a6; font-size: 14px; display: flex; align-items: center; }
+        .theater-icon { width: 28px; height: 28px; border-radius: 50%; margin-right: 12px; display: flex; justify-content: center; align-items: center; font-size: 11px; font-weight: bold; color: white; }
+        .cgv { background-color: #ff2a2a; }
+        .lotte { background-color: #ed1d24; font-size: 14px; }
+        .mega { background-color: #331557; font-size: 14px; }
+        .rec-movie { transition: transform 0.2s; }
+        .rec-movie:hover { transform: scale(1.05); }
     </style>
 </head>
 <body>
@@ -82,7 +103,18 @@
                     <p id="modalCast"></p>
                     <p id="modalRelease"></p>
                     <p id="modalGenres"></p>
+                    <div id="watchSectionContainer"></div>
                 </div>
+
+                <!-- ✨ [추가] 이 영화가 내 취향에 얼마나 맞는지 육각형으로 표시 -->
+                <div id="tasteMatchSection">
+                    <h3>🎯 내 취향과의 일치도 <span id="matchOverall"></span></h3>
+                    <p id="matchNotice" style="display: none;"></p>
+                    <div class="radar-wrap">
+                        <canvas id="tasteRadar"></canvas>
+                    </div>
+                </div>
+
                 <div id="mediaSection" style="margin-top: 30px;">
                     <h3>예고편</h3>
                     <div id="trailerContainer" style="margin-bottom: 20px;"></div>
@@ -103,15 +135,23 @@
         </div>
     </div>
 
+    <!-- ✨ [추가] 육각형 차트를 위한 Chart.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
     <script>
-        const userEmail = "test1@naver.com";
+        // ✨ [수정] 고정 이메일 대신 로그인한 사용자의 이메일 사용 (index.html과 동일 방식)
+        const userEmail = localStorage.getItem('userEmail');
+        if (!userEmail) {
+            alert('로그인이 필요한 서비스입니다.');
+            window.location.href = 'login.html';
+        }
         const movieMap = new Map(); 
         let likedMovieIds = new Set(); // 찜한 영화 ID 저장 전용 Set
+        let tasteRadarChart = null;    // ✨ 육각형 차트 인스턴스 (재사용 시 교체용)
 
         // 찜 목록 상태 실시간 조회를 위한 동기화 함수
         async function syncLikedStatus() {
             try {
-                const res = await fetch(`http://127.0.0.1:8000/api/movies/liked-ids/${userEmail}`);
+                const res = await fetch(`https://cinematch-web-3cut.onrender.com//api/movies/liked-ids/${userEmail}`);
                 const ids = await res.json();
                 likedMovieIds = new Set(ids);
             } catch (e) { console.error(e); }
@@ -122,7 +162,7 @@
             const row = document.getElementById('personalRecRow');
             const subtitle = document.getElementById('genreSubtitle'); // 부제목 요소 가져오기
             try {
-                const response = await fetch(`http://127.0.0.1:8000/api/movies/recommendations/personal/${userEmail}`);
+                const response = await fetch(`https://cinematch-web-3cut.onrender.com//api/movies/recommendations/personal/${userEmail}`);
                 const data = await response.json(); // 배열이 아닌 딕셔너리(객체)로 받음
                 const movies = data.movies; // 영화 목록 추출
 
@@ -176,7 +216,7 @@
             await syncLikedStatus();
             const grid = document.getElementById('likedMoviesGrid');
             try {
-                const response = await fetch(`http://127.0.0.1:8000/api/movies/mypage/likes/${userEmail}`);
+                const response = await fetch(`https://cinematch-web-3cut.onrender.com//api/movies/mypage/likes/${userEmail}`);
                 const movies = await response.json();
 
                 grid.innerHTML = ''; 
@@ -216,9 +256,72 @@
             }
         }
 
+        // ✨ [추가] 이 영화가 내 취향에 얼마나 맞는지 받아와 육각형으로 그리기
+        async function fetchMatchAndDrawRadar(movieId) {
+            const section = document.getElementById('tasteMatchSection');
+            const overallEl = document.getElementById('matchOverall');
+            const noticeEl = document.getElementById('matchNotice');
+            try {
+                const res = await fetch(`https://cinematch-web-3cut.onrender.com//api/movies/recommendations/match/${userEmail}/${movieId}`);
+                if (!res.ok) { section.style.display = 'none'; return; }
+                const data = await res.json();
+
+                section.style.display = 'block';
+                overallEl.innerText = `종합 ${data.overall}%`;
+
+                // 찜한 영화가 없으면 '취향 유사도'가 0이라 안내 문구 표시
+                if (!data.has_likes) {
+                    noticeEl.innerText = "영화를 몇 편 찜하면 '취향 유사도'가 더 정확해져요.";
+                    noticeEl.style.display = 'block';
+                } else {
+                    noticeEl.style.display = 'none';
+                }
+
+                const labels = Object.keys(data.scores);   // 6개 축 이름
+                const values = Object.values(data.scores);  // 6개 점수
+
+                // 기존 차트가 있으면 제거 후 새로 그림 (다른 영화로 모달 재사용 대비)
+                if (tasteRadarChart) tasteRadarChart.destroy();
+
+                tasteRadarChart = new Chart(document.getElementById('tasteRadar'), {
+                    type: 'radar',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: '일치도',
+                            data: values,
+                            fill: true,
+                            backgroundColor: 'rgba(229,9,20,0.25)',
+                            borderColor: '#e50914',
+                            pointBackgroundColor: '#e50914',
+                            pointRadius: 3,
+                            borderWidth: 2
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            r: {
+                                min: 0, max: 100,
+                                ticks: { stepSize: 20, color: 'rgba(255,255,255,0.4)', backdropColor: 'transparent', font: { size: 11 } },
+                                grid: { color: 'rgba(255,255,255,0.15)' },
+                                angleLines: { color: 'rgba(255,255,255,0.15)' },
+                                pointLabels: { color: '#eee', font: { size: 13 } }
+                            }
+                        },
+                        plugins: { legend: { display: false } }
+                    }
+                });
+            } catch (e) {
+                console.error('취향 분석 로드 실패:', e);
+                section.style.display = 'none';
+            }
+        }
+
         async function showMovieDetails(movie) {
             try {
-                const res = await fetch(`http://127.0.0.1:8000/api/movies/details/${movie.id}`);
+                const res = await fetch(`https://cinematch-web-3cut.onrender.com//api/movies/details/${movie.id}`);
                 const details = await res.json();
 
                 document.getElementById('modalPoster').src = movie.poster_url;
@@ -236,15 +339,66 @@
                     ageBadge.style.backgroundColor = details.age_rating === '청소년관람불가' ? '#e50914' : 'rgba(51, 51, 51, 0.9)';
                 } else { ageBadge.style.display = 'none'; }
 
+                // ✨ [추가] 보러가기(극장/OTT) 섹션 — 메인 화면과 동일
+                const watchSection = document.getElementById('watchSectionContainer');
+                let watchHtml = '<h3 class="watch-title">보러가기</h3>';
+                if (details.is_playing_in_theater) {
+                    watchHtml += `
+                        <div class="watch-btn" onclick="window.open('http://www.cgv.co.kr/search/?query=${encodeURIComponent(details.title)}', '_blank')">
+                            <div class="watch-left"><div class="theater-icon cgv">CGV</div> CGV</div>
+                            <div class="watch-right">예매하기 〉</div>
+                        </div>
+                        <div class="watch-btn" onclick="window.open('https://www.lottecinema.co.kr/NLCHS/Home', '_blank')">
+                            <div class="watch-left"><div class="theater-icon lotte">L</div> 롯데시네마</div>
+                            <div class="watch-right">예매하기 〉</div>
+                        </div>
+                        <div class="watch-btn" onclick="window.open('https://www.megabox.co.kr/', '_blank')">
+                            <div class="watch-left"><div class="theater-icon mega">M</div> 메가박스</div>
+                            <div class="watch-right">예매하기 〉</div>
+                        </div>
+                    `;
+                } else if (details.ott_providers && details.ott_providers.length > 0) {
+                    details.ott_providers.forEach(p => {
+                        watchHtml += `
+                            <div class="watch-btn">
+                                <div class="watch-left">
+                                    <img src="https://image.tmdb.org/t/p/w200${p.logo_path}" alt="${p.provider_name}">
+                                    ${p.provider_name}
+                                </div>
+                                <div class="watch-right">정액제 〉</div>
+                            </div>
+                        `;
+                    });
+                } else {
+                    watchHtml += `<div class="watch-btn"><div class="watch-left" style="color: gray; font-weight: normal;">현재 시청 가능한 스트리밍 서비스나 상영관이 없습니다.</div></div>`;
+                }
+                watchSection.innerHTML = watchHtml;
+
+                // ✨ [수정] 추천 영화에 포스터 표시 + 클릭 시 해당 영화로 이동 (메인 화면과 동일)
                 const recommendList = document.getElementById('recommendList');
                 recommendList.innerHTML = '';
-                details.recommendations.forEach(rec => {
-                    const item = document.createElement('div');
-                    item.style.textAlign = 'center';
-                    item.style.width = '100px';
-                    item.innerHTML = `<p style="font-size: 13px; color: #fff;">${rec.title}</p>`;
-                    recommendList.appendChild(item);
-                });
+                if (details.recommendations && details.recommendations.length > 0) {
+                    details.recommendations.forEach(rec => {
+                        if (rec.poster_url) {
+                            const item = document.createElement('div');
+                            item.className = 'rec-movie';
+                            item.style.textAlign = 'center';
+                            item.style.width = '120px';
+                            item.style.cursor = 'pointer';
+                            item.innerHTML = `
+                                <img src="${rec.poster_url}" style="width: 100%; border-radius: 8px;">
+                                <p style="font-size: 13px; color: #fff; margin-top: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${rec.title}</p>
+                            `;
+                            item.onclick = () => {
+                                document.querySelector('.modal-content').scrollTop = 0;
+                                showMovieDetails({ id: rec.id, poster_url: rec.poster_url, title: rec.title });
+                            };
+                            recommendList.appendChild(item);
+                        }
+                    });
+                } else {
+                    recommendList.innerHTML = '<p style="color:gray;">추천 영화가 없습니다.</p>';
+                }
 
                 const trailerContainer = document.getElementById('trailerContainer');
                 trailerContainer.innerHTML = details.trailer_key 
@@ -266,6 +420,9 @@
 
                 document.getElementById('movieModal').style.display = 'flex';
 
+                // ✨ 모달이 보인 뒤 육각형(취향 일치도) 그리기 — 표시 후에 그려야 크기가 정상
+                fetchMatchAndDrawRadar(movie.id);
+
             } catch (error) { console.error(error); }
         }
 
@@ -286,7 +443,7 @@
             const isLiked = likedMovieIds.has(movieId);
             const action = isLiked ? 'unlike' : 'like';
 
-            const response = await fetch(`http://127.0.0.1:8000/api/movies/${action}/${movieId}`, {
+            const response = await fetch(`https://cinematch-web-3cut.onrender.com//api/movies/${action}/${movieId}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email: userEmail }) 

@@ -38,6 +38,16 @@ COUNTRY_LANG_MAP = {
     "KR": "ko", "US": "en", "JP": "ja", "GB": "en"
 }
 
+# ✨ 종합 추천도(육각형 '종합' 축) 가중치 — 합이 1.0이 되도록 유지하세요.
+#    인기도/최신성/평점을 더 중요하게 만들려면 그 값을 키우고 taste/genre를 줄이면 됩니다.
+SCORE_WEIGHTS = {
+    "taste": 0.30,       # 취향 유사도 (찜한 영화와 닮은 정도)
+    "genre": 0.15,       # 장르 적합도
+    "rating": 0.20,      # 평점
+    "popularity": 0.20,  # 인기도
+    "recency": 0.15,     # 최신성
+}
+
 # -------------------------------------------------------------
 # ✨ [추가] /search/ai 자연어 검색용 TF-IDF 캐시
 # DB 전체 영화의 줄거리로 TF-IDF를 "한 번만" 학습해두고 재사용한다.
@@ -339,24 +349,37 @@ def get_personal_recommendations(email: str):
         except Exception:
             return {"movies": [], "genre": ""} 
 
-    raw_recommendations = get_recommendations(movie_list, target_movie_id)
+    # 후보를 넉넉히 받아온 뒤, 찜한 영화들의 '주 언어'와 같은 영화를 우선 노출하도록 재정렬한다.
+    raw_recommendations = get_recommendations(movie_list, target_movie_id, top_n=200)
+
+    # 영화 id → 원어(original_language) 매핑 (DB에서 직접 읽어 캐시 영향 없음)
+    lang_by_id = {m["id"]: m.get("original_language") for m in movie_list}
+
+    # 찜한 영화들의 가장 많은 언어 = 선호 언어 (예: 한국 영화만 찜했으면 'ko')
+    liked_langs = [lang_by_id.get(mid) for mid in liked_movie_ids if lang_by_id.get(mid)]
+    pref_lang = max(set(liked_langs), key=liked_langs.count) if liked_langs else None
+
+    # 찜한 영화 제외 후 (선호 언어 우선 → 그다음 유사도순)으로 정렬
+    candidates = [r for r in raw_recommendations if r["id"] not in liked_movie_ids]
+    candidates.sort(
+        key=lambda r: (
+            1 if (pref_lang and lang_by_id.get(r["id"]) == pref_lang) else 0,
+            r.get("final_score", 0)
+        ),
+        reverse=True
+    )
 
     final_recommendations = []
-    for rec in raw_recommendations:
-        if rec['id'] not in liked_movie_ids: 
-            rec_info = next((m for m in movie_list if m['id'] == rec['id']), None)
-            
-            if rec_info:
-                final_recommendations.append({
-                    "id": rec_info.get("id"),
-                    "title": rec_info.get("title"),
-                    "rating": rec_info.get("vote_average", 0),
-                    "poster_url": rec_info.get("poster_url", ""),
-                    "overview": rec_info.get("overview", "")
-                })
-
-            if len(final_recommendations) >= 10:
-                break
+    for rec in candidates:
+        final_recommendations.append({
+            "id": rec.get("id"),
+            "title": rec.get("title"),
+            "rating": rec.get("vote_average", 0),
+            "poster_url": rec.get("poster_url", ""),
+            "overview": rec.get("overview", "")
+        })
+        if len(final_recommendations) >= 10:
+            break
 
     return {
         "movies": final_recommendations,
@@ -480,15 +503,19 @@ def get_recommendation_match(email: str, movie_id: int):
         except Exception:
             raise HTTPException(status_code=404, detail="영화 정보를 가져올 수 없습니다.")
 
-    # 1) 취향 유사도 — 추천 엔진을 재사용해 찜한 영화들과의 평균 유사도 계산
+    # 1) 취향 유사도 — 추천 엔진을 재사용해 찜한 영화들과의 유사도 계산
     taste_sim = 0.0  # 0~1
+    matched_likes = 0  # 찜 영화 중 DB에서 실제 비교에 사용된 개수 (디버깅용)
     if liked_movie_ids:
-        # 대상 영화 기준 전체 유사도를 받아 찜한 영화들 것만 골라 평균
+        # 대상 영화 기준 전체 유사도를 받아 찜한 영화들 것만 추출
         recs = get_recommendations(movie_list, movie_id, top_n=len(movie_list))
         sim_by_id = {r["id"]: r.get("similarity", 0) for r in recs}
         liked_sims = [sim_by_id[mid] for mid in liked_movie_ids if mid in sim_by_id]
+        matched_likes = len(liked_sims)
         if liked_sims:
-            taste_sim = sum(liked_sims) / len(liked_sims)
+            # ✨ '평균'이 아니라 '가장 비슷한 찜 영화'와의 유사도(최댓값)를 사용한다.
+            #    취향이 다양하면 평균은 0에 수렴하므로, 최댓값이 "이건 네가 좋아한 ○○와 닮았어"를 더 잘 표현한다.
+            taste_sim = max(liked_sims)
 
     # 2) 장르 적합도 — 선호 장르(가입) + 찜한 영화들의 장르를 합친 집합과 비교
     pref_set = set(preferred_genres)
@@ -519,8 +546,15 @@ def get_recommendation_match(email: str, movie_id: int):
         age = datetime.now().year - int(rd[:4])
         recency = min(max(0.0, 1.0 - age * 0.05), 1.0)
 
-    # 6) 종합 추천도 — 추천 엔진과 동일하게 유사도 80% + 평점 20%
-    final_score = taste_sim * 0.8 + rating_score * 0.2
+    # 6) 종합 추천도 — 5개 요소의 가중 평균 (가중치는 맨 위 SCORE_WEIGHTS에서 조절)
+    w = SCORE_WEIGHTS
+    final_score = (
+        taste_sim * w["taste"]
+        + genre_fit * w["genre"]
+        + rating_score * w["rating"]
+        + popularity_score * w["popularity"]
+        + recency * w["recency"]
+    )
 
     def pct(x):
         return round(x * 100)
@@ -539,6 +573,7 @@ def get_recommendation_match(email: str, movie_id: int):
             "종합 추천도": pct(final_score),
         },
         "has_likes": bool(liked_movie_ids),
+        "matched_likes": matched_likes,
     }
 
 # -------------------------------------------------------------
