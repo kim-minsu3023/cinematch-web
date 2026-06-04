@@ -1,5 +1,7 @@
 import sys
 import os
+import threading
+import bisect
 from datetime import datetime  
 
 # 모듈 탐색 경로 설정 (제일 위에 있어야 함)
@@ -29,6 +31,57 @@ GENRE_MAP = {
     27: "공포", 10402: "음악", 9648: "미스터리", 10749: "로맨스", 878: "SF",
     10770: "TV영화", 53: "스릴러", 10752: "전쟁", 37: "서부"
 }
+
+# ✨ [추가] 국가 코드(ISO 3166-1) → TMDB 원어 코드(ISO 639-1) 매핑
+# 회원가입은 국가코드(KR/US/JP/GB)를 저장하지만, TMDB 필터는 원어 코드(ko/en/ja)를 사용하므로 변환이 필요함
+COUNTRY_LANG_MAP = {
+    "KR": "ko", "US": "en", "JP": "ja", "GB": "en"
+}
+
+# -------------------------------------------------------------
+# ✨ [추가] /search/ai 자연어 검색용 TF-IDF 캐시
+# DB 전체 영화의 줄거리로 TF-IDF를 "한 번만" 학습해두고 재사용한다.
+# 검색할 때는 검색어만 transform 하므로 매우 빠르다.
+# 영화 수가 바뀌면(수집으로 늘어나면) 자동으로 다시 학습한다.
+# -------------------------------------------------------------
+_search_cache = {
+    "count": None,        # 캐시를 만든 시점의 영화 개수 (간단한 무효화 기준)
+    "vectorizer": None,   # 학습된 TF-IDF 벡터라이저
+    "matrix": None,       # 전체 영화 줄거리의 TF-IDF 행렬
+    "movies": None,       # 결과 매핑용 영화 메타데이터 리스트
+}
+_search_lock = threading.Lock()
+
+
+def _get_search_index():
+    """DB 영화 줄거리 TF-IDF 인덱스를 캐시에서 가져오거나 새로 만든다."""
+    # count_documents 는 전체 문서를 끌어오지 않아 가볍다 → 변경 감지용으로 사용
+    current_count = movies_collection.count_documents({})
+
+    with _search_lock:
+        if _search_cache["matrix"] is not None and _search_cache["count"] == current_count:
+            return _search_cache["vectorizer"], _search_cache["matrix"], _search_cache["movies"]
+
+        # 캐시 미스 → 이때만 전체 영화를 가져와 TF-IDF 학습
+        movies = list(movies_collection.find({}, {"_id": 0}))
+        overviews = [m.get("overview", "") for m in movies]
+
+        vectorizer = TfidfVectorizer()
+        matrix = None
+        if overviews:
+            try:
+                matrix = vectorizer.fit_transform(overviews)
+            except ValueError:
+                matrix = None  # 데이터가 거의 없을 때 방지
+
+        _search_cache.update({
+            "count": current_count,
+            "vectorizer": vectorizer,
+            "matrix": matrix,
+            "movies": movies,
+        })
+        return vectorizer, matrix, movies
+
 
 class LikeMovieRequest(BaseModel):
     email: str  # 찜하기를 하는 유저의 이메일
@@ -208,11 +261,20 @@ def get_home_sections():
     if not TMDB_API_KEY:
         raise HTTPException(status_code=500, detail="API 키가 설정되지 않았습니다.")
 
-    recent_popular_filter = "primary_release_date.gte=2021-01-01&sort_by=popularity.desc"
+    # 할리우드/애니: 인기순 + 2021년 이후 + 평가수 100개 이상 (이쪽은 평가가 충분해서 잘 동작)
+    popular_filter = "primary_release_date.gte=2021-01-01&sort_by=popularity.desc&vote_count.gte=100&include_adult=false"
 
-    ko_url = f"https://api.themoviedb.org/3/discover/movie?api_key={TMDB_API_KEY}&language=ko-KR&with_original_language=ko&{recent_popular_filter}&page=1"
-    en_url = f"https://api.themoviedb.org/3/discover/movie?api_key={TMDB_API_KEY}&language=ko-KR&with_original_language=en&{recent_popular_filter}&page=1"
-    ani_url = f"https://api.themoviedb.org/3/discover/movie?api_key={TMDB_API_KEY}&language=ko-KR&with_genres=16&{recent_popular_filter}&page=1"
+    # ✨ 국내 영화: '평가 수'가 아니라 '한국 극장 개봉작'을 기준으로 거른다.
+    #   - region=KR + release_date.gte : 한국에서 개봉한 영화로 필터 (TMDB는 이 조합이어야 지역 필터가 먹힘)
+    #   - with_release_type=3|2 (%7C=|) : 극장 개봉작만 → VOD 전용 비주류/성인물 제외
+    #   - vote_count.gte=10 : 데이터가 거의 없는 것만 살짝 거름 (최신작도 나오도록 낮게 설정)
+    ko_url = (
+        f"https://api.themoviedb.org/3/discover/movie?api_key={TMDB_API_KEY}&language=ko-KR"
+        f"&with_original_language=ko&region=KR&release_date.gte=2024-01-01"
+        f"&with_release_type=3%7C2&sort_by=popularity.desc&vote_count.gte=10&include_adult=false&page=1"
+    )
+    en_url = f"https://api.themoviedb.org/3/discover/movie?api_key={TMDB_API_KEY}&language=ko-KR&with_original_language=en&{popular_filter}&page=1"
+    ani_url = f"https://api.themoviedb.org/3/discover/movie?api_key={TMDB_API_KEY}&language=ko-KR&with_genres=16&{popular_filter}&page=1"
 
     try:
         def fetch_movies(url):
@@ -302,6 +364,184 @@ def get_personal_recommendations(email: str):
     }
 
 # -------------------------------------------------------------
+# ✨ [신규] 선호 장르/국가 기반 메인화면 추천 API
+# 회원가입 때 선택한 preferred_genres / preferred_countries 를 읽어
+# TMDB discover 로 "선호 장르 중 하나라도 포함 + 선호 국가" 영화를 추천한다.
+# -------------------------------------------------------------
+@router.get("/recommendations/preferences/{email}")
+def get_preference_recommendations(email: str):
+    """회원가입 때 선택한 선호 장르/국가를 기반으로 메인화면 추천 영화를 반환하는 API"""
+    if not TMDB_API_KEY:
+        raise HTTPException(status_code=500, detail="API 키가 설정되지 않았습니다.")
+
+    user = users_collection.find_one({"email": email})
+    if not user:
+        raise HTTPException(status_code=404, detail="유저를 찾을 수 없습니다.")
+
+    genre_ids = user.get("preferred_genres", []) or []
+    country_codes = user.get("preferred_countries", []) or []
+
+    # 장르는 OR 조건으로 묶는다 (%7C = '|' : 선택한 장르 중 하나라도 포함하면 추천)
+    genre_param = "%7C".join(str(g) for g in genre_ids)
+
+    # 선택한 국가들을 TMDB 원어 코드로 변환 (중복 제거)
+    langs = []
+    for c in country_codes:
+        lang = COUNTRY_LANG_MAP.get(c)
+        if lang and lang not in langs:
+            langs.append(lang)
+
+    # 공통 필터: 인기순 + 최소 평점 수 50개 이상(허접한 영화 제외)
+    base = (
+        f"https://api.themoviedb.org/3/discover/movie"
+        f"?api_key={TMDB_API_KEY}&language=ko-KR"
+        f"&sort_by=popularity.desc&vote_count.gte=50"
+    )
+    if genre_param:
+        base += f"&with_genres={genre_param}"
+
+    # 국가가 있으면 국가(언어)별로 각각 조회, 없으면 한 번만 조회
+    urls = [base + f"&with_original_language={l}" for l in langs] if langs else [base]
+
+    collected = {}  # id를 키로 사용해 중복 제거
+    try:
+        for url in urls:
+            res = requests.get(url).json()
+            for item in res.get("results", []):
+                if not item.get("poster_path"):
+                    continue
+                mid = item["id"]
+                if mid in collected:
+                    continue
+                collected[mid] = {
+                    "id": mid,
+                    "title": item["title"],
+                    "rating": item.get("vote_average", 0),
+                    "poster_url": f"https://image.tmdb.org/t/p/w500{item['poster_path']}",
+                    "overview": item.get("overview", ""),
+                    "_pop": item.get("popularity", 0)  # 내부 정렬용
+                }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"TMDB 연결 실패: {str(e)}")
+
+    # 여러 국가 결과를 인기순으로 합쳐서 상위 15개 추출
+    movies = sorted(collected.values(), key=lambda m: m["_pop"], reverse=True)[:15]
+    for m in movies:
+        m.pop("_pop", None)  # 내부 정렬용 필드는 응답에서 제거
+
+    # 프론트 제목에 활용할 선호 장르 이름들
+    genre_names = [GENRE_MAP.get(g, "") for g in genre_ids if GENRE_MAP.get(g)]
+
+    return {
+        "movies": movies,
+        "genres": genre_names
+    }
+
+# -------------------------------------------------------------
+# ✨ [신규] 추천 영화 ↔ 내 취향 일치도 (육각형 레이더 시각화용)
+# 추천 영화 한 편이 내 취향에 얼마나 맞는지 6개 축(0~100) 점수로 반환한다.
+#   1) 취향 유사도 : 찜한 영화들과의 평균 줄거리 유사도(TF-IDF)
+#   2) 장르 적합도 : 선호 장르 + 찜한 영화 장르와의 겹침
+#   3) 평점        : vote_average 환산
+#   4) 인기도      : DB 내 popularity 백분위
+#   5) 최신성      : 개봉 연도 기준(최근일수록 높음)
+#   6) 종합 추천도 : 취향유사도*0.8 + 평점*0.2 (추천 엔진과 동일 가중치)
+# -------------------------------------------------------------
+@router.get("/recommendations/match/{email}/{movie_id}")
+def get_recommendation_match(email: str, movie_id: int):
+    user = users_collection.find_one({"email": email})
+    if not user:
+        raise HTTPException(status_code=404, detail="유저를 찾을 수 없습니다.")
+
+    liked_movie_ids = user.get("liked_movies", []) or []
+    preferred_genres = set(user.get("preferred_genres", []) or [])
+
+    # DB 전체 영화 풀 (추천 엔진과 같은 목록이라 캐시를 공유한다)
+    movie_list = list(movies_collection.find({}, {"_id": 0}))
+    if not movie_list:
+        raise HTTPException(status_code=404, detail="영화 데이터가 없습니다.")
+
+    # 대상 영화가 DB에 없으면 TMDB에서 가져와 풀에 추가
+    target = next((m for m in movie_list if m.get("id") == movie_id), None)
+    if target is None:
+        url = f"https://api.themoviedb.org/3/movie/{movie_id}?api_key={TMDB_API_KEY}&language=ko-KR"
+        try:
+            d = requests.get(url).json()
+            target = {
+                "id": movie_id,
+                "title": d.get("title", ""),
+                "overview": d.get("overview", ""),
+                "vote_average": d.get("vote_average", 0),
+                "popularity": d.get("popularity", 0),
+                "release_date": d.get("release_date", ""),
+                "genre_ids": [g["id"] for g in d.get("genres", [])],
+            }
+            movie_list.append(target)
+        except Exception:
+            raise HTTPException(status_code=404, detail="영화 정보를 가져올 수 없습니다.")
+
+    # 1) 취향 유사도 — 추천 엔진을 재사용해 찜한 영화들과의 평균 유사도 계산
+    taste_sim = 0.0  # 0~1
+    if liked_movie_ids:
+        # 대상 영화 기준 전체 유사도를 받아 찜한 영화들 것만 골라 평균
+        recs = get_recommendations(movie_list, movie_id, top_n=len(movie_list))
+        sim_by_id = {r["id"]: r.get("similarity", 0) for r in recs}
+        liked_sims = [sim_by_id[mid] for mid in liked_movie_ids if mid in sim_by_id]
+        if liked_sims:
+            taste_sim = sum(liked_sims) / len(liked_sims)
+
+    # 2) 장르 적합도 — 선호 장르(가입) + 찜한 영화들의 장르를 합친 집합과 비교
+    pref_set = set(preferred_genres)
+    for m in movie_list:
+        if m.get("id") in liked_movie_ids:
+            pref_set.update(m.get("genre_ids", []) or [])
+    movie_genres = target.get("genre_ids", []) or []
+    if movie_genres and pref_set:
+        matched = len([g for g in movie_genres if g in pref_set])
+        genre_fit = matched / len(movie_genres)
+    else:
+        genre_fit = 0.0
+
+    # 3) 평점
+    vote = float(target.get("vote_average", 0) or 0)
+    rating_score = min(vote / 10.0, 1.0)
+
+    # 4) 인기도 — DB 내 백분위 (이상치에 강하고 0~1로 떨어짐)
+    pops = sorted(float(m.get("popularity", 0) or 0) for m in movie_list)
+    target_pop = float(target.get("popularity", 0) or 0)
+    rank = bisect.bisect_right(pops, target_pop)
+    popularity_score = (rank / len(pops)) if pops else 0.0
+
+    # 5) 최신성 — 매년 5%씩 감소, 20년 지나면 0
+    recency = 0.0
+    rd = target.get("release_date", "") or ""
+    if len(rd) >= 4 and rd[:4].isdigit():
+        age = datetime.now().year - int(rd[:4])
+        recency = min(max(0.0, 1.0 - age * 0.05), 1.0)
+
+    # 6) 종합 추천도 — 추천 엔진과 동일하게 유사도 80% + 평점 20%
+    final_score = taste_sim * 0.8 + rating_score * 0.2
+
+    def pct(x):
+        return round(x * 100)
+
+    return {
+        "movie_id": movie_id,
+        "title": target.get("title", ""),
+        "overall": pct(final_score),
+        # 프론트에서 그대로 레이더 축으로 사용 (순서 = 그리는 순서)
+        "scores": {
+            "취향 유사도": pct(taste_sim),
+            "장르 적합도": pct(genre_fit),
+            "평점": pct(rating_score),
+            "인기도": pct(popularity_score),
+            "최신성": pct(recency),
+            "종합 추천도": pct(final_score),
+        },
+        "has_likes": bool(liked_movie_ids),
+    }
+
+# -------------------------------------------------------------
 # 🔍 1. 일반 영화 제목 검색 API
 # -------------------------------------------------------------
 @router.get("/search/title")
@@ -329,37 +569,33 @@ def search_by_title(query: str):
 # -------------------------------------------------------------
 @router.get("/search/ai")
 def search_by_ai(query: str):
-    # 1. DB에 있는 전체 영화 데이터 가져오기
-    movies = list(movies_collection.find({}, {"_id": 0}))
-    if not movies:
+    # 1. 캐시된 TF-IDF 인덱스 가져오기 (전체 영화는 한 번만 학습됨)
+    vectorizer, matrix, movies = _get_search_index()
+    if matrix is None or not movies:
         return []
 
-    # 2. 모든 영화의 줄거리(overview) 리스트 생성
-    overviews = [m.get("overview", "") for m in movies]
-    
-    # 3. 사용자가 입력한 검색어(예: "잔잔한 힐링 영화")를 리스트 맨 끝에 추가
-    overviews.append(query)
-
-    # 4. TF-IDF 벡터화 (텍스트를 컴퓨터가 이해하는 숫자로 변환)
-    vectorizer = TfidfVectorizer()
+    # 2. 검색어만 그때그때 벡터로 변환 (학습은 안 하고 변환만 → 빠름)
     try:
-        tfidf_matrix = vectorizer.fit_transform(overviews)
+        query_vec = vectorizer.transform([query])
     except ValueError:
-        return [] # 데이터가 너무 없거나 영어/숫자만 있어서 에러나는 경우 방지
+        return []
 
-    # 5. 사용자의 검색어(맨 마지막 값)와 기존 영화들의 유사도 계산
-    cosine_sim = cosine_similarity(tfidf_matrix[-1], tfidf_matrix[:-1]).flatten()
+    # 3. 검색어 vs 전체 영화 줄거리 유사도 계산
+    cosine_sim = cosine_similarity(query_vec, matrix).flatten()
 
-    # 6. 유사도가 가장 높은 상위 10개 영화 추출
+    # 4. 유사도가 가장 높은 상위 10개 영화 추출
     top_indices = cosine_sim.argsort()[-10:][::-1]
-    
+
     results = []
     for i in top_indices:
-        if cosine_sim[i] > 0.01: # 유사도가 조금이라도 있는 것만
-            # 프론트엔드 출력을 위해 TMDB 포스터 URL 조립
-            poster = movies[i].get("poster_path", "")
-            poster_url = f"https://image.tmdb.org/t/p/w500{poster}" if poster else ""
-            
+        if cosine_sim[i] > 0.01:  # 유사도가 조금이라도 있는 것만
+            # DB에는 poster_url 이 통째로 저장돼 있으므로 그대로 사용,
+            # (혹시 옛 데이터에 poster_path 만 있으면 URL을 조립)
+            poster_url = movies[i].get("poster_url", "")
+            if not poster_url:
+                poster_path = movies[i].get("poster_path", "")
+                poster_url = f"https://image.tmdb.org/t/p/w500{poster_path}" if poster_path else ""
+
             results.append({
                 "id": movies[i]['id'],
                 "title": movies[i]['title'],
@@ -367,5 +603,5 @@ def search_by_ai(query: str):
                 "poster_url": poster_url,
                 "overview": movies[i].get('overview', '')
             })
-            
+
     return results
