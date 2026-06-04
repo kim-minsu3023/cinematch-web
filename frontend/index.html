@@ -342,7 +342,7 @@
         // ✨ [추가] 닉네임 로드 함수
         async function loadUserProfile() {
             try {
-                const res = await fetch(`https://cinematch-web-3cut.onrender.com//api/users/profile/${userEmail}`);
+                const res = await fetch(`https://cinematch-web-3cut.onrender.com/api/users/profile/${userEmail}`);
                 if (res.ok) {
                     const data = await res.json();
                     document.getElementById('userNameDisplay').innerHTML = `<span style="color: white;">${data.nickname}</span>님 환영합니다`;
@@ -360,7 +360,7 @@
 
         async function syncLikedStatus() {
             try {
-                const res = await fetch(`https://cinematch-web-3cut.onrender.com//api/movies/liked-ids/${userEmail}`);
+                const res = await fetch(`https://cinematch-web-3cut.onrender.com/api/movies/liked-ids/${userEmail}`);
                 if (res.ok) {
                     const ids = await res.json();
                     likedMovieIds = new Set(ids);
@@ -389,7 +389,7 @@
         // ✨ [추가] 회원가입 선호 장르/국가 기반 추천 불러오기
         async function fetchPreferenceRecommendations() {
             try {
-                const res = await fetch(`https://cinematch-web-3cut.onrender.com//api/movies/recommendations/preferences/${userEmail}`);
+                const res = await fetch(`https://cinematch-web-3cut.onrender.com/api/movies/recommendations/preferences/${userEmail}`);
                 if (!res.ok) return;
                 const data = await res.json();
                 if (!data.movies || data.movies.length === 0) return; // 추천 없으면 섹션 숨김 유지
@@ -421,7 +421,7 @@
         async function fetchAndDisplayMovies() {
             try {
                 await syncLikedStatus(); 
-                const response = await fetch('https://cinematch-web-3cut.onrender.com//api/movies/home-sections');
+                const response = await fetch('https://cinematch-web-3cut.onrender.com/api/movies/home-sections');
                 const data = await response.json();
 
                 function renderRow(containerId, movies) {
@@ -471,7 +471,7 @@
                     document.getElementById('modalPoster').src = movie.poster_url;
                 }
 
-                const res = await fetch(`https://cinematch-web-3cut.onrender.com//api/movies/details/${movie.id}`);
+                const res = await fetch(`https://cinematch-web-3cut.onrender.com/api/movies/details/${movie.id}`);
                 const details = await res.json();
 
                 document.getElementById('modalTitle').innerText = details.title || movie.title;
@@ -597,7 +597,7 @@
             const action = isLiked ? 'unlike' : 'like'; 
 
             try {
-                const response = await fetch(`https://cinematch-web-3cut.onrender.com//api/movies/${action}/${movieId}`, {
+                const response = await fetch(`https://cinematch-web-3cut.onrender.com/api/movies/${action}/${movieId}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ email: userEmail }) 
@@ -641,10 +641,10 @@
             
             if (query.startsWith('/')) {
                 const exactQuery = query.substring(1).trim(); 
-                apiUrl = `https://cinematch-web-3cut.onrender.com//api/movies/search/ai?query=${encodeURIComponent(exactQuery)}`;
+                apiUrl = `https://cinematch-web-3cut.onrender.com/api/movies/search/ai?query=${encodeURIComponent(exactQuery)}`;
                 searchTitle.innerHTML = `🤖 AI 추천 결과 : "<span style="color:white;">${exactQuery}</span>"`;
             } else {
-                apiUrl = `https://cinematch-web-3cut.onrender.com//api/movies/search/title?query=${encodeURIComponent(query)}`;
+                apiUrl = `https://cinematch-web-3cut.onrender.com/api/movies/search/title?query=${encodeURIComponent(query)}`;
                 searchTitle.innerHTML = `🔍 일반 검색 결과 : "<span style="color:white;">${query}</span>"`;
             }
 

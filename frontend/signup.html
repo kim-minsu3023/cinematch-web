@@ -81,7 +81,7 @@
             const preferredCountries = Array.from(document.querySelectorAll('#countryGroup .pill.active')).map(el => el.dataset.value);
 
             try {
-                const response = await fetch('https://cinematch-web-3cut.onrender.com//api/users/register', {
+                const response = await fetch('https://cinematch-web-3cut.onrender.com/api/users/register', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
