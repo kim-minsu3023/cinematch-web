@@ -357,7 +357,7 @@ def get_personal_recommendations(email: str):
     lang_by_id = {mid: m.get("original_language") for mid, m in movie_by_id.items()}
 
     # ✨ 저품질·소수 투표 영화 거르기 (예: 1~2표로 평점 10.0인 '섹귀'·'과외누나' 류 제외)
-    MIN_VOTE_COUNT = 50  # 투표 수가 이보다 적으면 신뢰도 낮다고 보고 추천에서 제외
+    MIN_VOTE_COUNT = 100  # 투표 수가 이보다 적으면 신뢰도 낮다고 보고 추천에서 제외
     def is_quality(mid):
         m = movie_by_id.get(mid, {})
         vc = m.get("vote_count")
