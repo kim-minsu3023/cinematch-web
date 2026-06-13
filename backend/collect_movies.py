@@ -99,13 +99,14 @@ def collect_movies_to_db(max_pages=500, sort_by="popularity.desc", extra_params=
 if __name__ == "__main__":
     # 여러 정렬 기준으로 모으면 한 쿼리(1만 개) 한계를 넘겨 더 많은 영화를 수집한다.
     # (인기순 외에 평가수·수익·최신·평점순으로 서로 다른 영화들이 잡힘. 중복은 upsert로 자동 제거)
-    # - 평점순(vote_average)은 평가수 필터를 걸어야 허접한 영화가 안 섞인다.
+    # ✨ [A안] 모든 수집에 평가 수 50 이상 기준을 적용 → 평가 3~4개짜리 허접 영화는 애초에 DB에 안 담김.
+    #    (추천 단계에서 100 이상으로 한 번 더 거르므로, 수집은 50으로 넓게 담아 다양성 확보)
     queries = [
-        ("popularity.desc", ""),                              # 인기순
-        ("vote_count.desc", ""),                              # 평가 많은 순
-        ("revenue.desc", ""),                                 # 흥행 수익 순
-        ("primary_release_date.desc", "&vote_count.gte=30"),  # 최신순(평가 30개 이상)
-        ("vote_average.desc", "&vote_count.gte=300"),         # 평점 높은 순(평가 300개 이상)
+        ("popularity.desc", "&vote_count.gte=50"),            # 인기순
+        ("vote_count.desc", "&vote_count.gte=50"),            # 평가 많은 순
+        ("revenue.desc", "&vote_count.gte=50"),               # 흥행 수익 순
+        ("primary_release_date.desc", "&vote_count.gte=50"),  # 최신순
+        ("vote_average.desc", "&vote_count.gte=300"),         # 평점 높은 순(평점순은 더 엄격히)
     ]
 
     total_new = 0
