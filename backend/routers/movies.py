@@ -352,15 +352,26 @@ def get_personal_recommendations(email: str):
     # 후보를 넉넉히 받아온 뒤, 찜한 영화들의 '주 언어'와 같은 영화를 우선 노출하도록 재정렬한다.
     raw_recommendations = get_recommendations(movie_list, target_movie_id, top_n=200)
 
-    # 영화 id → 원어(original_language) 매핑 (DB에서 직접 읽어 캐시 영향 없음)
-    lang_by_id = {m["id"]: m.get("original_language") for m in movie_list}
+    # 영화 id → 정보 매핑 (DB에서 직접 읽어 캐시 영향 없음)
+    movie_by_id = {m["id"]: m for m in movie_list}
+    lang_by_id = {mid: m.get("original_language") for mid, m in movie_by_id.items()}
+
+    # ✨ 저품질·소수 투표 영화 거르기 (예: 1~2표로 평점 10.0인 '섹귀'·'과외누나' 류 제외)
+    MIN_VOTE_COUNT = 50  # 투표 수가 이보다 적으면 신뢰도 낮다고 보고 추천에서 제외
+    def is_quality(mid):
+        m = movie_by_id.get(mid, {})
+        vc = m.get("vote_count")
+        if vc is not None:                      # 투표 수 정보가 있으면 그것으로 판단
+            return vc >= MIN_VOTE_COUNT
+        return m.get("vote_average", 0) < 9.3   # 없으면(재수집 전) 평점 이상치로 임시 판단
 
     # 찜한 영화들의 가장 많은 언어 = 선호 언어 (예: 한국 영화만 찜했으면 'ko')
     liked_langs = [lang_by_id.get(mid) for mid in liked_movie_ids if lang_by_id.get(mid)]
     pref_lang = max(set(liked_langs), key=liked_langs.count) if liked_langs else None
 
-    # 찜한 영화 제외 후 (선호 언어 우선 → 그다음 유사도순)으로 정렬
-    candidates = [r for r in raw_recommendations if r["id"] not in liked_movie_ids]
+    # 찜한 영화·저품질 영화 제외 후 (선호 언어 우선 → 그다음 유사도순)으로 정렬
+    candidates = [r for r in raw_recommendations
+                  if r["id"] not in liked_movie_ids and is_quality(r["id"])]
     candidates.sort(
         key=lambda r: (
             1 if (pref_lang and lang_by_id.get(r["id"]) == pref_lang) else 0,

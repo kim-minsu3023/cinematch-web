@@ -64,6 +64,7 @@ def collect_movies_to_db(max_pages=500, sort_by="popularity.desc", extra_params=
                     "overview": m['overview'],
                     "release_date": m.get('release_date', ''),
                     "vote_average": m.get('vote_average', 0),
+                    "vote_count": m.get('vote_count', 0),  # ✨ 투표 수 — 저품질(소수 투표) 영화 필터링용
                     "poster_url": f"https://image.tmdb.org/t/p/w500{m.get('poster_path')}" if m.get('poster_path') else "",
                     "genre_ids": m.get('genre_ids', []),
                     "popularity": m.get('popularity', 0),
