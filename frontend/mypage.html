@@ -43,6 +43,14 @@
         .modal-btns { margin-top: 30px; display: flex; gap: 15px; }
         #likeBtn { padding: 15px 35px; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 18px; transition: 0.3s; }
         .close-btn { padding: 15px 35px; background: #333; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 18px; }
+
+        /* ✨ [추가] 스크롤해도 항상 보이는 우측 상단 닫기(X) 버튼 */
+        .modal-topbar { position: sticky; top: 0; height: 0; z-index: 30; }
+        .modal-close-x { position: absolute; top: 14px; right: 14px; width: 42px; height: 42px; border-radius: 50%; background: rgba(20,20,20,0.78); color: #fff; border: 1px solid rgba(255,255,255,0.25); font-size: 20px; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: 0.2s; }
+        .modal-close-x:hover { background: #e50914; }
+        /* ✨ [추가] 제목 바로 아래로 올린 찜하기 버튼 영역 */
+        .modal-top-actions { margin: 0 0 24px; }
+
         .age-badge { position: absolute; top: 20px; right: 20px; color: white; font-weight: bold; padding: 8px 12px; border-radius: 5px; font-size: 16px; box-shadow: 0 4px 6px rgba(0,0,0,0.5); z-index: 10; }
 
         /* ✨ [추가] 취향 일치도(육각형) 섹션 */
@@ -65,6 +73,10 @@
         .mega { background-color: #331557; font-size: 14px; }
         .rec-movie { transition: transform 0.2s; }
         .rec-movie:hover { transform: scale(1.05); }
+
+        /* ✨ [추가] 카드가 하나씩 스르륵 등장하는 효과 */
+        @keyframes cardIn { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+        .card-appear { opacity: 0; animation: cardIn 0.4s ease-out forwards; }
     </style>
 </head>
 <body>
@@ -77,7 +89,8 @@
     </header>
 
     <div class="container">
-        <h2>✨ 나만을 위한 맞춤 추천 <span id="genreSubtitle" style="font-size: 16px; color: #aaa; margin-left: 10px; font-weight: normal;"></span></h2>
+        <h2>나만을 위한 맞춤 추천 <span id="genreSubtitle" style="font-size: 16px; color: #aaa; margin-left: 10px; font-weight: normal;"></span></h2>
+        <p style="color:#888; font-size:14px; margin:-18px 0 22px;">영화를 찜할수록 추천이 정확해져요. 3개 이상 찜하면 취향이 더 잘 반영됩니다.</p>
         <div class="movie-row" id="personalRecRow" style="margin-bottom: 50px; display: flex; overflow-x: auto; gap: 15px; padding-bottom: 15px;">
             <p style="color: gray;">취향을 분석하는 중입니다...</p>
         </div>
@@ -90,6 +103,9 @@
 
     <div id="movieModal" class="modal">
         <div class="modal-content">
+            <div class="modal-topbar">
+                <button class="modal-close-x" onclick="document.getElementById('movieModal').style.display='none'" title="닫기">✕</button>
+            </div>
             <div class="modal-banner">
                 <img id="modalPoster" src="" alt="포스터">
                 <div id="modalAgeRating" class="age-badge" style="display: none;"></div>
@@ -97,6 +113,9 @@
             <div class="modal-body">
                 <h2 id="modalTitle"></h2>
                 <p id="modalOverview"></p>
+                <div class="modal-top-actions">
+                    <button id="likeBtn">찜하기 ♥</button>
+                </div>
                 <div id="modalDetails" style="margin-bottom: 20px; color: #aaa;">
                     <p id="modalRating"></p>
                     <p id="modalDirector"></p>
@@ -108,7 +127,7 @@
 
                 <!-- ✨ [추가] 이 영화가 내 취향에 얼마나 맞는지 육각형으로 표시 -->
                 <div id="tasteMatchSection">
-                    <h3>🎯 내 취향과의 일치도 <span id="matchOverall"></span></h3>
+                    <h3>내 취향과의 일치도 <span id="matchOverall"></span></h3>
                     <p id="matchNotice" style="display: none;"></p>
                     <div class="radar-wrap">
                         <canvas id="tasteRadar"></canvas>
@@ -128,7 +147,6 @@
                     <div id="recommendList" style="display: flex; gap: 15px; flex-wrap: wrap;"></div>
                 </div>
                 <div class="modal-btns" style="margin-top: 30px;">
-                    <button id="likeBtn">찜하기 ♥</button>
                     <button class="close-btn" onclick="document.getElementById('movieModal').style.display='none'">닫기</button>
                 </div>
             </div>
@@ -170,20 +188,21 @@
 
                 // 데이터가 없을 때 처리
                 if (!movies || movies.length === 0) {
-                    row.innerHTML = '<p style="color: #888;">아직 분석할 데이터가 부족해요. 영화를 더 찜해주세요!</p>';
+                    row.innerHTML = '<p style="color: #888;">아직 찜한 영화가 없어요. 마음에 드는 영화를 찜하면 바로 맞춤 추천이 시작됩니다. (3개 이상이면 더 정확해져요!)</p>';
                     if (subtitle) subtitle.innerText = '';
                     return;
                 }
 
                 // ✨ 백엔드에서 받은 장르 텍스트를 UI에 표시
                 if (data.genre) {
-                    subtitle.innerText = `🍿 최근 찜한 [${data.genre}] 장르 기반`;
+                    subtitle.innerText = `최근 찜한 [${data.genre}] 장르 기반`;
                 }
 
-                movies.forEach(movie => {
+                movies.forEach((movie, i) => {
                     movieMap.set(movie.id, movie); // 상세정보를 위해 Map에 저장
                     const card = document.createElement('div');
-                    card.className = 'movie-card';
+                    card.className = 'movie-card card-appear';
+                    card.style.animationDelay = (i * 0.09) + 's'; // ✨ 하나씩 차례로 등장
                     card.dataset.id = movie.id; 
                     card.style.flex = '0 0 auto'; // 가로 스크롤 카드 고정 크기
                     card.style.width = '200px';

@@ -192,6 +192,13 @@
         #likeBtn { padding: 15px 35px; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 18px; transition: 0.3s background-color; }
         .close-btn { padding: 15px 35px; background: #333; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 18px; }
 
+        /* ✨ [추가] 스크롤해도 항상 보이는 우측 상단 닫기(X) 버튼 */
+        .modal-topbar { position: sticky; top: 0; height: 0; z-index: 30; }
+        .modal-close-x { position: absolute; top: 14px; right: 14px; width: 42px; height: 42px; border-radius: 50%; background: rgba(20,20,20,0.78); color: #fff; border: 1px solid rgba(255,255,255,0.25); font-size: 20px; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: 0.2s; }
+        .modal-close-x:hover { background: #e50914; }
+        /* ✨ [추가] 제목 바로 아래로 올린 찜하기 버튼 영역 */
+        .modal-top-actions { margin: 0 0 24px; }
+
         /* 관람등급 뱃지 디자인 */
         .age-badge {
             position: absolute;
@@ -213,6 +220,10 @@
         .rec-movie:hover {
             transform: scale(1.05);
         }
+
+        /* ✨ [추가] 카드가 하나씩 스르륵 등장하는 효과 */
+        @keyframes cardIn { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+        .card-appear { opacity: 0; animation: cardIn 0.4s ease-out forwards; }
 
         /* 캡처화면 스타일의 보러가기(OTT/극장) 섹션 CSS */
         #watchSectionContainer { margin-top: 25px; margin-bottom: 25px; }
@@ -286,6 +297,9 @@
         
     <div id="movieModal" class="modal">
         <div class="modal-content">
+            <div class="modal-topbar">
+                <button class="modal-close-x" onclick="document.getElementById('movieModal').style.display='none'" title="닫기">✕</button>
+            </div>
             <div class="modal-banner">
                 <img id="modalPoster" src="" alt="포스터">
                 <div id="modalAgeRating" class="age-badge" style="display: none;"></div>
@@ -295,6 +309,10 @@
                 <h2 id="modalTitle"></h2>
                 <p id="modalOverview"></p>
                 
+                <div class="modal-top-actions">
+                    <button id="likeBtn">찜하기 ♥</button>
+                </div>
+
                 <div id="modalDetails" style="margin-bottom: 20px; color: #aaa;">
                     <p id="modalRating"></p>
                     <p id="modalDirector"></p>
@@ -321,7 +339,6 @@
                 </div>
                 
                 <div class="modal-btns" style="margin-top: 30px;">
-                    <button id="likeBtn">찜하기 ♥</button>
                     <button class="close-btn" onclick="document.getElementById('movieModal').style.display='none'">닫기</button>
                 </div>
             </div>
@@ -658,10 +675,11 @@
                     return;
                 }
 
-                movies.forEach(movie => {
+                movies.forEach((movie, i) => {
                     movieMap.set(movie.id, movie); 
                     const card = document.createElement('div');
-                    card.className = 'movie-card';
+                    card.className = 'movie-card card-appear';
+                    card.style.animationDelay = (i * 0.09) + 's'; // ✨ 하나씩 차례로 등장
                     card.dataset.id = movie.id; 
                     card.innerHTML = `
                         <img src="${movie.poster_url}" class="movie-poster" alt="${movie.title}" onerror="this.src='https://via.placeholder.com/200x300?text=No+Image'">

@@ -101,12 +101,34 @@
                     localStorage.setItem('userEmail', email);
                     window.location.href = 'index.html';
                 } else {
-                    alert("가입 실패: " + result.detail);
+                    // 서버가 보낸 에러(detail)를 사람이 읽을 수 있는 문장으로 변환
+                    alert("가입 실패: " + parseError(result.detail));
                 }
             } catch (error) {
                 alert("서버 오류: 백엔드가 켜져 있는지 확인하세요.");
             }
         });
+
+        // 백엔드 에러 메시지를 보기 좋게 풀어주는 함수
+        function parseError(detail) {
+            // 1) detail이 없을 때
+            if (!detail) return "알 수 없는 오류가 발생했습니다.";
+            // 2) 그냥 문자열일 때 (예: "이미 가입된 이메일입니다.")
+            if (typeof detail === "string") return detail;
+            // 3) 검증 오류라 배열로 올 때 (예: 이메일 형식 오류)
+            if (Array.isArray(detail)) {
+                return detail.map(err => {
+                    const field = err.loc ? err.loc[err.loc.length - 1] : "";
+                    // 자주 나오는 경우는 한국어로 친절하게 안내
+                    if (field === "email") return "이메일 형식이 올바르지 않습니다. (예: name@example.com)";
+                    if (field === "password") return "비밀번호를 확인해주세요.";
+                    if (field === "nickname") return "닉네임을 확인해주세요.";
+                    return err.msg || "입력값을 확인해주세요.";
+                }).join("\n");
+            }
+            // 4) 그 외 객체 형태
+            return JSON.stringify(detail);
+        }
     </script>
 </body>
 </html>
