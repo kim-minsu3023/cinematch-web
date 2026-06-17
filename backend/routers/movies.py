@@ -238,15 +238,34 @@ def get_movie_details(movie_id: int):
             "id": movie_id,
             "title": data.get("title", ""),
             "overview": data.get("overview", ""),
-            "poster_url": f"https://image.tmdb.org/t/p/w500{data.get('poster_path')}" if data.get("poster_path") else ""
+            "poster_url": f"https://image.tmdb.org/t/p/w500{data.get('poster_path')}" if data.get("poster_path") else "",
+            # ✨ 장르·평점 정보를 넣어야 유사도가 제대로 계산된다 (이게 없으면 관련 없는 영화가 추천됨)
+            "genre_ids": [g["id"] for g in data.get("genres", [])],
+            "vote_average": data.get("vote_average", 0),
+            "vote_count": data.get("vote_count", 0),
+            "original_language": data.get("original_language", "")
         }
         movie_list.append(target_movie)
 
-    # 4. [수정] 자체 추천 엔진 실행 후, 화면 하단 표시용 6개 추출 및 포스터 매핑
-    raw_recommendations = get_recommendations(movie_list, movie_id)
+    # 4. 추천 엔진 실행 → '관련성(유사도) 위주'로, 저품질 영화는 빼고 6개 추출
+    movie_by_id = {m["id"]: m for m in movie_list}
+    raw_recommendations = get_recommendations(movie_list, movie_id, top_n=60)
+
+    MIN_SIM = 0.08   # 이 정도는 닮아야 '관련 있는' 추천으로 본다 (장르·줄거리 유사도)
+    def _ok_quality(mid):
+        m = movie_by_id.get(mid, {})
+        vc = m.get("vote_count")
+        if vc is not None:
+            return vc >= 100               # 평가 수 100 미만(소수만 본 영화)은 제외
+        return m.get("vote_average", 0) < 9.3
+
+    relevant = [r for r in raw_recommendations
+                if r.get("similarity", 0) >= MIN_SIM and _ok_quality(r["id"])]
+    relevant.sort(key=lambda r: r.get("similarity", 0), reverse=True)  # 가장 닮은 순
+
     final_recommendations = []
-    for rec in raw_recommendations[:6]: # 최대 6개까지만
-        rec_detail = next((m for m in movie_list if m['id'] == rec['id']), None)
+    for rec in relevant[:6]:               # 관련성 높은 6개만
+        rec_detail = movie_by_id.get(rec["id"])
         if rec_detail:
             final_recommendations.append(rec_detail)
 
